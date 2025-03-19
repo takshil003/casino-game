@@ -2,9 +2,13 @@
   "name": "casino-game",
   "version": "1.0.0",
   "description": "A full-stack poker game with AI-powered bots",
+  "main": "index.js",
   "scripts": {
     "dev": "concurrently \"cd client && pnpm dev\" \"cd server && pnpm dev\"",
+    "dev:client": "cd client && pnpm dev",
+    "dev:server": "cd server && pnpm dev",
     "install:all": "pnpm install && cd client && pnpm install && cd ../server && pnpm install",
+    "clean": "rm -rf node_modules && cd client && rm -rf node_modules && cd ../server && rm -rf node_modules",
     "build": "cd client && pnpm build && cd ../server && pnpm build",
     "start": "cd server && pnpm start"
   },
@@ -17,7 +21,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "devDependencies": {
+  "dependencies": {
     "concurrently": "^8.2.2"
   }
 } 

@@ -1,8 +1,12 @@
 import styled from 'styled-components';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Dispatch, SetStateAction } from 'react';
 import type { Player, GameState, Card } from '../../types/poker';
 import { initializeGame, dealCards, handlePlayerAction } from '../../utils/poker';
 import { findBestHand } from '../../utils/handEvaluator';
+import { GameConfig } from './GameConfig';
+import { getAdvancedAIDecision } from '../../utils/advancedAI';
+import { PlayingCard } from './PlayingCard';
+import { ChipStack } from './ChipStack';
 
 const TableContainer = styled.div`
   width: 1000px;
@@ -143,75 +147,102 @@ const HandRank = styled.div`
   color: #ffd700;
 `;
 
+const NewGameButton = styled.button`
+  padding: 12px 24px;
+  margin-left: 20px;
+  background: linear-gradient(45deg, #2ecc71, #27ae60);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+`;
+
 function formatCard(card: Card | null): string {
   if (!card) return '🂠';
   return `${card.suit}${card.rank}`;
 }
 
-export default function PokerTable() {
-  const [gameState, setGameState] = useState<GameState | null>(null);
+interface PokerTableProps {
+  state: GameState;
+  setState: Dispatch<SetStateAction<GameState | null>>;
+  config: GameConfig;
+  onNewGame: () => void;
+}
+
+export default function PokerTable({ state, setState, config, onNewGame }: PokerTableProps) {
   const [raiseAmount, setRaiseAmount] = useState<number>(0);
   const [winners, setWinners] = useState<Player[]>([]);
-
-  // Initialize game
-  useEffect(() => {
-    const initialPlayers: Player[] = [
-      { id: 1, name: 'You', chips: 1000, position: 0, cards: [], bet: 0, isActive: true, isTurn: false, isDealer: false },
-      { id: 2, name: 'AI 1', chips: 1000, position: 2, cards: [], bet: 0, isActive: true, isTurn: false, isDealer: false },
-      { id: 3, name: 'AI 2', chips: 1000, position: 4, cards: [], bet: 0, isActive: true, isTurn: false, isDealer: false },
-      { id: 4, name: 'AI 3', chips: 1000, position: 6, cards: [], bet: 0, isActive: true, isTurn: false, isDealer: false },
-    ];
-
-    const newGameState = initializeGame(initialPlayers);
-    setGameState(dealCards(newGameState));
-  }, []);
+  const [isDealing, setIsDealing] = useState(false);
+  const [movingChips, setMovingChips] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
 
   useEffect(() => {
-    if (gameState && gameState.activePlayerIndex !== 0 && gameState.phase !== 'showdown') {
-      // AI turn
-      const aiAction = () => {
-        const actions = ['fold', 'check', 'call', 'raise'];
-        const randomAction = actions[Math.floor(Math.random() * actions.length)] as 'fold' | 'check' | 'call' | 'raise';
-        const randomRaise = Math.floor(Math.random() * 100) + gameState.currentBet + 1;
-        
-        setTimeout(() => {
-          setGameState(prevState => {
-            if (!prevState) return prevState;
-            const newState = handlePlayerAction(prevState, randomAction, randomRaise);
-            
-            // Check for showdown
-            if (newState.phase === 'showdown') {
-              const activePlayers = newState.players.filter(p => p.isActive);
-              if (activePlayers.length === 1) {
-                setWinners([activePlayers[0]]);
-              } else {
-                const playerHands = activePlayers.map(player => ({
-                  player,
-                  hand: findBestHand(player.cards, newState.communityCards)
-                }));
-                const highestScore = Math.max(...playerHands.map(ph => ph.hand.score));
-                const roundWinners = playerHands
-                  .filter(ph => ph.hand.score === highestScore)
-                  .map(ph => ph.player);
-                setWinners(roundWinners);
-              }
-            }
-            
-            return newState;
-          });
-        }, 1000);
-      };
-
-      aiAction();
+    if (state) {
+      setRaiseAmount(state.blinds.big * 2);
     }
-  }, [gameState?.activePlayerIndex]);
+  }, [state?.blinds.big]);
 
-  if (!gameState) return <div>Loading...</div>;
+  useEffect(() => {
+    if (!state) return;
+    
+    const currentPlayer = state.players[state.activePlayerIndex];
+    if (!currentPlayer || currentPlayer.id === 1 || !currentPlayer.isActive) return;
+
+    setAiThinking(true);
+    const aiDecisionDelay = Math.random() * 1000 + 500;
+
+    const timeoutId = setTimeout(() => {
+      try {
+        const action = getAdvancedAIDecision(currentPlayer, state, config.botDifficulty);
+        setMovingChips(true);
+        const newState = handlePlayerAction(state, action.action, action.raiseAmount);
+        setState(newState);
+
+        if (newState.phase === 'showdown') {
+          const activePlayers = newState.players.filter(p => p.isActive);
+          if (activePlayers.length === 1) {
+            setWinners([activePlayers[0]]);
+          } else {
+            const playerHands = activePlayers.map(player => ({
+              player,
+              hand: findBestHand(player.cards, newState.communityCards)
+            }));
+            const highestScore = Math.max(...playerHands.map(ph => ph.hand.score));
+            const roundWinners = playerHands
+              .filter(ph => ph.hand.score === highestScore)
+              .map(ph => ph.player);
+            setWinners(roundWinners);
+          }
+        }
+      } catch (error) {
+        console.error('Error in AI decision:', error);
+      } finally {
+        setTimeout(() => {
+          setMovingChips(false);
+          setAiThinking(false);
+        }, 500);
+      }
+    }, aiDecisionDelay);
+
+    return () => clearTimeout(timeoutId);
+  }, [state?.activePlayerIndex, config?.botDifficulty]);
 
   const handleAction = (action: 'fold' | 'check' | 'call' | 'raise') => {
-    if (gameState.activePlayerIndex !== 0) return; // Not player's turn
-    const newState = handlePlayerAction(gameState, action, action === 'raise' ? raiseAmount : undefined);
-    setGameState(newState);
+    if (!state || state.activePlayerIndex !== 0 || aiThinking) return;
+
+    setMovingChips(true);
+    const newState = handlePlayerAction(state, action, action === 'raise' ? raiseAmount : undefined);
+    setState(newState);
 
     if (newState.phase === 'showdown') {
       const activePlayers = newState.players.filter(p => p.isActive);
@@ -229,115 +260,133 @@ export default function PokerTable() {
         setWinners(roundWinners);
       }
     }
-  };
 
-  const playerHand = gameState.phase !== 'preflop' && gameState.players[0].cards.length === 2
-    ? findBestHand(gameState.players[0].cards, gameState.communityCards)
-    : null;
+    setTimeout(() => setMovingChips(false), 500);
+  };
 
   return (
     <div>
-      <TableContainer>
-        {gameState.players.map((player) => (
-          <PlayerPosition key={player.id} position={player.position}>
-            <PlayerAvatar style={{
-              border: `3px solid ${
-                winners.some(w => w.id === player.id)
-                  ? '#00ff00'
-                  : player.isTurn
-                    ? '#ff0000'
-                    : player.isDealer
-                      ? '#ffd700'
-                      : '#666'
-              }`
-            }}>
-              {player.name[0]}
-            </PlayerAvatar>
-            <PlayerInfo>
-              <div>{player.name} {player.isDealer ? '(D)' : ''}</div>
-              <div>${player.chips}</div>
-              <div style={{ fontSize: '0.8em', color: '#ffd700' }}>
-                {player.bet > 0 ? `Bet: $${player.bet}` : ''}
-              </div>
-              <div style={{ marginTop: '0.5rem' }}>
-                {player.id === 1 || gameState.phase === 'showdown' ? 
-                  player.cards.map(formatCard).join(' ') : 
-                  player.cards.map(() => '🂠').join(' ')}
-              </div>
-              {gameState.phase === 'showdown' && player.isActive && (
-                <HandRank>
-                  {findBestHand(player.cards, gameState.communityCards).rank}
-                </HandRank>
-              )}
-            </PlayerInfo>
-          </PlayerPosition>
-        ))}
-        
-        <Pot>Pot: ${gameState.pot}</Pot>
-        
-        <CommunityCards>
-          {gameState.communityCards.map((card, index) => (
-            <CardDisplay key={index}>{formatCard(card)}</CardDisplay>
-          ))}
-          {Array(5 - gameState.communityCards.length).fill(null).map((_, index) => (
-            <CardDisplay key={`empty-${index}`}>🂠</CardDisplay>
-          ))}
-        </CommunityCards>
-      </TableContainer>
+      {!state ? (
+        <div>Loading game state...</div>
+      ) : (
+        <>
+          <TableContainer>
+            {state.players.map((player) => (
+              <PlayerPosition key={player.id} position={player.position}>
+                <PlayerAvatar 
+                  style={{
+                    border: `3px solid ${
+                      winners.some(w => w.id === player.id)
+                        ? '#00ff00'
+                        : player.isTurn
+                          ? '#ff0000'
+                          : player.isDealer
+                            ? '#ffd700'
+                            : '#666'
+                    }`,
+                    animation: aiThinking && player.isTurn ? 'pulse 1s infinite' : 'none'
+                  }}
+                >
+                  {player.name[0]}
+                </PlayerAvatar>
+                <PlayerInfo>
+                  <div>{player.name} {player.isDealer ? '(D)' : ''}</div>
+                  <div>${player.chips}</div>
+                  {player.bet > 0 && (
+                    <ChipStack amount={player.bet} isMoving={movingChips} />
+                  )}
+                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                    {player.cards.map((card, index) => (
+                      <PlayingCard
+                        key={index}
+                        card={card}
+                        isDealt={!isDealing}
+                        isRevealed={player.id === 1 || state.phase === 'showdown'}
+                      />
+                    ))}
+                  </div>
+                  {state.phase === 'showdown' && player.isActive && (
+                    <HandRank>
+                      {findBestHand(player.cards, state.communityCards).rank}
+                    </HandRank>
+                  )}
+                </PlayerInfo>
+              </PlayerPosition>
+            ))}
+            
+            <Pot>
+              <ChipStack amount={state.pot} isMoving={movingChips} />
+            </Pot>
+            
+            <CommunityCards>
+              {state.communityCards.map((card, index) => (
+                <PlayingCard
+                  key={index}
+                  card={card}
+                  isDealt={!isDealing}
+                  isRevealed={true}
+                />
+              ))}
+            </CommunityCards>
+          </TableContainer>
 
-      <ActionButtons>
-        <ActionButton 
-          disabled={gameState.activePlayerIndex !== 0}
-          onClick={() => handleAction('fold')}
-        >
-          Fold
-        </ActionButton>
-        <ActionButton 
-          disabled={gameState.activePlayerIndex !== 0 || gameState.currentBet > 0}
-          onClick={() => handleAction('check')}
-        >
-          Check
-        </ActionButton>
-        <ActionButton 
-          disabled={gameState.activePlayerIndex !== 0}
-          onClick={() => handleAction('call')}
-        >
-          Call ${gameState.currentBet}
-        </ActionButton>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <input
-            type="number"
-            value={raiseAmount}
-            onChange={(e) => setRaiseAmount(Math.max(0, parseInt(e.target.value) || 0))}
-            style={{
-              width: '80px',
-              padding: '0.5rem',
-              borderRadius: '4px',
-              border: '1px solid #ffd700',
-              background: '#2c2d30',
-              color: 'white'
-            }}
-          />
-          <ActionButton 
-            disabled={gameState.activePlayerIndex !== 0 || raiseAmount <= gameState.currentBet}
-            onClick={() => handleAction('raise')}
-          >
-            Raise
-          </ActionButton>
-        </div>
-      </ActionButtons>
+          <ActionButtons>
+            <ActionButton 
+              disabled={state.activePlayerIndex !== 0 || aiThinking}
+              onClick={() => handleAction('fold')}
+            >
+              Fold
+            </ActionButton>
+            <ActionButton 
+              disabled={state.activePlayerIndex !== 0 || state.currentBet > 0 || aiThinking}
+              onClick={() => handleAction('check')}
+            >
+              Check
+            </ActionButton>
+            <ActionButton 
+              disabled={state.activePlayerIndex !== 0 || aiThinking}
+              onClick={() => handleAction('call')}
+            >
+              Call ${state.currentBet}
+            </ActionButton>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                type="number"
+                value={raiseAmount}
+                onChange={(e) => setRaiseAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                style={{
+                  width: '80px',
+                  padding: '0.5rem',
+                  borderRadius: '4px',
+                  border: '1px solid #ffd700',
+                  background: '#2c2d30',
+                  color: 'white'
+                }}
+              />
+              <ActionButton 
+                disabled={
+                  state.activePlayerIndex !== 0 || 
+                  raiseAmount <= state.currentBet || 
+                  aiThinking
+                }
+                onClick={() => handleAction('raise')}
+              >
+                Raise
+              </ActionButton>
+            </div>
+          </ActionButtons>
 
-      <GameInfo>
-        <div>Phase: {gameState.phase}</div>
-        {playerHand && (
-          <div>Your Hand: {playerHand.rank}</div>
-        )}
-        {winners.length > 0 && gameState.phase === 'showdown' && (
-          <div>
-            Winner{winners.length > 1 ? 's' : ''}: {winners.map(w => w.name).join(', ')}
-          </div>
-        )}
-      </GameInfo>
+          <GameInfo>
+            <div>Phase: {state.phase}</div>
+            {state.phase === 'showdown' && winners.length > 0 && (
+              <div>
+                Winner{winners.length > 1 ? 's' : ''}: {winners.map(w => w.name).join(', ')}
+                <NewGameButton onClick={onNewGame}>New Game</NewGameButton>
+              </div>
+            )}
+          </GameInfo>
+        </>
+      )}
     </div>
   );
 } 

@@ -1,5 +1,5 @@
 export type Suit = '♠' | '♣' | '♥' | '♦';
-export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
+export type Rank = 'A' | 'K' | 'Q' | 'J' | '10' | '9' | '8' | '7' | '6' | '5' | '4' | '3' | '2';
 
 export interface Card {
   suit: Suit;
@@ -20,13 +20,19 @@ export interface Player {
 
 export type GamePhase = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
 
+export interface Blinds {
+  small: number;
+  big: number;
+}
+
 export interface GameState {
   players: Player[];
   communityCards: Card[];
+  deck: Card[];
   pot: number;
   currentBet: number;
-  phase: GamePhase;
   activePlayerIndex: number;
   dealerIndex: number;
-  deck: Card[];
+  phase: GamePhase;
+  blinds: Blinds;
 } 

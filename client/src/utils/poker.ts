@@ -1,4 +1,4 @@
-import { Card, Suit, Rank, Player, GameState, GamePhase } from '../types/poker';
+import { Card, Suit, Rank, Player, GameState, GamePhase, Blinds } from '../types/poker';
 import { evaluateHand, findBestHand } from './handEvaluator';
 
 const suits: Suit[] = ['♠', '♣', '♥', '♦'];
@@ -77,26 +77,44 @@ export function nextPhase(currentPhase: GamePhase): GamePhase {
   return phases[currentIndex + 1];
 }
 
-export function initializeGame(players: Player[]): GameState {
+export function initializeGame(players: Player[], blinds: Blinds = { small: 10, big: 20 }): GameState {
   const deck = createDeck();
-  const dealerIndex = Math.floor(Math.random() * players.length);
   
+  // Randomly select dealer and set up positions
+  const dealerIndex = Math.floor(Math.random() * players.length);
+  players[dealerIndex].isDealer = true;
+  
+  const smallBlindIndex = (dealerIndex + 1) % players.length;
+  const bigBlindIndex = (dealerIndex + 2) % players.length;
+  const firstToActIndex = (bigBlindIndex + 1) % players.length;
+  
+  // Reset all players
+  players.forEach(player => {
+    player.cards = [];
+    player.isActive = true;
+    player.isTurn = false;
+    player.bet = 0;
+  });
+  
+  // Post blinds
+  players[smallBlindIndex].chips -= blinds.small;
+  players[smallBlindIndex].bet = blinds.small;
+  players[bigBlindIndex].chips -= blinds.big;
+  players[bigBlindIndex].bet = blinds.big;
+  
+  // Set first player to act
+  players[firstToActIndex].isTurn = true;
+
   return {
-    players: players.map((player, index) => ({
-      ...player,
-      cards: [],
-      bet: 0,
-      isActive: true,
-      isTurn: index === (dealerIndex + 3) % players.length,
-      isDealer: index === dealerIndex
-    })),
+    players,
     communityCards: [],
-    pot: 0,
-    currentBet: 0,
-    phase: 'preflop',
-    activePlayerIndex: (dealerIndex + 3) % players.length,
+    deck,
+    pot: blinds.small + blinds.big,
+    currentBet: blinds.big,
+    activePlayerIndex: firstToActIndex,
     dealerIndex,
-    deck
+    phase: 'preflop',
+    blinds
   };
 }
 
